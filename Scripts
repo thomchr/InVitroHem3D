@@ -2,3 +2,198 @@
 
 
 ## Add scripts here or else make a new file to add them?
+
+###Fig 1.
+
+##1b
+
+library(Seurat)
+library(ggplot2)
+
+obj <- readRDS("path/to/your/seurat.RDS")
+
+# Cell-type annotation
+celltypes <- c(
+  "1_Stromal", "5_LMPP_Myeloid", "1_Stromal", "5_LMPP_Myeloid",
+  "2_Endo", "8_EMP_Myeloid", rep("4_HPC", 3),
+  rep("1_Stromal", 2), "4_HPC", "7_EMP", "9_EMP_Mk",
+  "6_LMPP_Lymphoid", "9_EMP_Mk", "1_Stromal", "4_HPC",
+  "1_Stromal", "10_EMP_Ery", "2_Endo", "1_Stromal",
+  "9_EMP_Mk", "2_Endo", "3_HE"
+)
+
+obj <- RenameIdents(obj, setNames(celltypes, as.character(0:24)))
+obj$cell.type <- Idents(obj)
+
+
+# UMAP colors
+cols <- c(
+  "1_Stromal" = "snow3", "2_Endo" = "coral",
+  "3_HE" = "coral3", "4_HPC" = "gold",
+  "5_LMPP_Myeloid" = "aquamarine2",
+  "6_LMPP_Lymphoid" = "aquamarine3",
+  "7_EMP" = "orchid1", "8_EMP_Myeloid" = "orchid3",
+  "9_EMP_Mk" = "orchid4", "10_EMP_Ery" = "maroon3"
+)
+
+# UMAP visualization
+p <- DimPlot(obj, reduction = "wnn.umap",
+             cols = cols, label = FALSE)
+
+ggsave("UMAP.pdf", p, width = 6, height = 4.8)
+
+##1c
+
+obj <- readRDS("path/to/your/seurat.RDS")
+Idents(obj) <- "cell.type"
+DefaultAssay(obj) <- "RNA"
+
+# Marker genes
+genes <- c(
+  "ADGRG6", "NID2", "FBN2", "DKK1", "NR2F2", "NRP2",
+  "PALMD", "TMCC3", "CDH5", "PECAM1", "ESM1", "DLL4",
+  "SOX17", "GJA5", "GJA4", "MECOM", "MAST4", "PDGFB",
+  "EDN1", "RUNX1", "PROCR", "GATA3", "HES4", "MLLT3",
+  "GATA2", "MYB", "SPN", "MPO", "PTPRC", "CD4",
+  "SELP", "ITGA2B", "GP9", "GATA1", "HBG1", "KLF1"
+)
+
+# DotPlot
+p <- DotPlot(obj, features = genes,
+             cols = c("lightgrey", "blue")) +
+  RotatedAxis() +
+  theme_classic() +
+  labs(x = NULL, y = NULL)
+
+ggsave("Marker_DotPlot.pdf", p, width = 9, height = 7)
+
+
+
+
+##1d
+
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(enrichplot)
+
+
+# Load data
+obj <- readRDS("path/to/your/seurat.RDS")
+DefaultAssay(obj) <- "RNA"
+Idents(obj) <- "cell.type"
+
+# GSEA analysis
+comparisons <- list(
+  Endo_vs_Stromal = c("2_Endo", "1_Stromal"),
+  HE_vs_Endo = c("3_HE", "2_Endo"),
+  HPC_vs_HE = c("4_HPC", "3_HE")
+)
+
+for (name in names(comparisons)) {
+  groups <- comparisons[[name]]
+  markers <- FindMarkers(obj, ident.1 = groups[1], ident.2 = groups[2])
+
+  genes <- bitr(rownames(markers), fromType = "SYMBOL",
+                toType = "ENSEMBL", OrgDb = org.Hs.eg.db)
+  df <- merge(markers, genes, by.x = 0, by.y = "SYMBOL")
+  ranks <- setNames(df$avg_log2FC, df$ENSEMBL)
+  ranks <- sort(ranks[is.finite(ranks) & !duplicated(names(ranks))],
+                decreasing = TRUE)
+
+  gsea <- gseGO(ranks, OrgDb = org.Hs.eg.db,
+                keyType = "ENSEMBL", ont = "ALL",
+                minGSSize = 3, maxGSSize = 800,
+                pvalueCutoff = 0.05, pAdjustMethod = "none",
+                eps = 0)
+
+  write.csv(as.data.frame(gsea), paste0(name, "_GSEA.csv"),
+            row.names = FALSE)
+
+  p <- dotplot(gsea, showCategory = 10, split = ".sign") +
+    facet_grid(. ~ .sign) + theme_bw()
+
+  ggsave(paste0(name, "_GSEA.pdf"), p, width = 8, height = 5)
+}
+
+
+##1e
+
+library(slingshot)
+library(ggbeeswarm)
+
+# Slingshot
+sce <- as.SingleCellExperiment(subset(obj,
+  idents = c("1_Stromal", "2_Endo", "3_HE", "4_HPC")))
+reducedDim(sce, "UMAP") <- Embeddings(obj, "umap.rna")[colnames(sce), ]
+
+sce <- slingshot(sce, clusterLabels = "cell.type",
+  reducedDim = "UMAP", start.clus = "1_Stromal",
+  end.clus = "4_HPC", shrink.method = "density", reweight = TRUE)
+
+# Pseudotime plot
+df <- data.frame(
+  celltype = factor(sce$cell.type,
+    levels = rev(c("1_Stromal", "2_Endo", "3_HE", "4_HPC")),
+    labels = c("HPC", "HE", "Endo", "Stroma")),
+  pseudotime = sce$slingPseudotime_1
+)
+
+p <- ggplot(df, aes(pseudotime, celltype, color = celltype)) +
+  geom_quasirandom(groupOnX = FALSE) +
+  scale_color_manual(values = c(
+    Stroma = "gray", Endo = "orange",
+    HE = "darkorange", HPC = "bisque")) +
+  theme_classic() + theme(legend.position = "none") +
+  labs(x = "Pseudotime", y = NULL)
+
+ggsave("Slingshot_Pseudotime.pdf", p, width = 5, height = 4)
+
+
+##1f-k
+
+
+
+
+
+
+###Fig2
+
+##2b
+library(Seurat)
+library(Signac)
+library(JASPAR2020)
+library(TFBSTools)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(ggplot2)
+
+# Load Seurat object
+obj <- readRDS("path/to/your/seurat.RDS")
+DefaultAssay(obj) <- "ATAC"
+Idents(obj) <- "cell.type"
+
+# Add motifs
+pfm <- getMatrixSet(JASPAR2020, opts = list(
+  collection = "CORE", tax_group = "vertebrates",
+  all_versions = FALSE))
+obj <- AddMotifs(obj, genome = BSgenome.Hsapiens.UCSC.hg38, pfm = pfm)
+
+# Differential accessibility
+da <- FindMarkers(obj, ident.1 = "1_Stromal",
+                  ident.2 = "2_Endo", only.pos = TRUE,
+                  test.use = "LR", min.pct = 0.05,
+                  latent.vars = "nCount_ATAC")
+
+# Motif enrichment
+motifs <- FindMotifs(obj, features = rownames(da)[da$p_val < 0.005])
+write.csv(motifs, "Stromal_vs_Endo_motifs.csv")
+
+# Visualization
+top20 <- head(motifs[order(-motifs$fold.enrichment), ], 20)
+
+p <- ggplot(top20, aes(fold.enrichment,
+                       reorder(motif.name, fold.enrichment))) +
+  geom_point(aes(color = p.adjust, size = -log10(pvalue))) +
+  theme_bw() +
+  labs(x = "Fold enrichment", y = NULL)
+
+ggsave("Stromal_vs_Endo_motifs.pdf", p, width = 5, height = 6)
