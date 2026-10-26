@@ -1,4 +1,4 @@
-# I3D genome remodeling during in vitro human hematopoietic development is linked to disease trait genetics
+# 3D genome remodeling during in vitro human hematopoietic development is linked to disease trait genetics
 
 Rong Qiu1,^, Khanh B. Trang2,3,^, Carson Shalaby1, James A. Pippin2,3, James Garifallou1, Struan F.A. Grant2,3,4,5,6*, Christopher S. Thom1,6*
 
