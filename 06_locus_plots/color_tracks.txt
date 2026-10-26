@@ -1,0 +1,10 @@
+1_Stromal   #D3D3D3
+2_Endo #E48658
+3_HE    #B15944
+4_HPC   #EED244
+5_LMPP_Myeloid  #93E2B8
+6_LMPP_Lymphoid #6FC6A1
+7_EMP   #F587E2
+8_EMP_Myeloid   #B972C4
+9_EMP_Mk    #6A3978
+10_EMP_Ery  #B73186
