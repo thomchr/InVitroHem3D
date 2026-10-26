@@ -353,9 +353,59 @@ for (name in names(genes)) {
 
 ###5a
 
+library(ComplexHeatmap)
+library(circlize)
 
+# Gene modules
+genes <- list(
+  Dynein = c("DYNC2H1", "DYNC1H1", "DYNC1I2", "DYNLL1"),
+  `Dynactin / adaptors` = c("BICD1", "HOOK3", "PAFAH1B1", "DCTN2"),
+  `Transport kinesins` = c("KIF5B", "KIF21A", "KIF1B", "KIF13B"),
+  `Mitotic motors` = c("TPX2", "CENPF", "CENPE", "KIF20B"),
+  `MT dynamics` = c("TUBA1A", "TUBB3", "TUBB", "TUBA1B"),
+  `MT proteins` = c("MTUS1", "CLIP1", "MAP1B", "MAP4"),
+  `Polarity / transport` = c("PARD3", "RAC1", "CDC42", "VCL")
+)
 
+stages <- c("1_Stromal", "2_Endo", "3_HE", "4_HPC")
+all_genes <- unlist(genes)
+stopifnot(all(all_genes %in% rownames(obj[["RNA"]])))
 
+# Balanced bootstrap expression
+set.seed(12345)
+cells <- split(colnames(obj), as.character(obj$cell.type))
+n <- min(lengths(cells[stages]))
+expr <- GetAssayData(obj, assay = "RNA", layer = "data")[all_genes, ]
+
+boot <- replicate(100, sapply(stages, function(s)
+  Matrix::rowMeans(expr[, sample(cells[[s]], n, replace = TRUE),
+                        drop = FALSE])), simplify = FALSE)
+
+avg <- sapply(seq_along(stages), function(i)
+  apply(sapply(boot, function(x) x[, i]), 1, median))
+rownames(avg) <- all_genes
+colnames(avg) <- c("Stroma", "Endo", "HE", "HPC")
+
+# Row z-score
+z <- t(scale(t(avg)))
+z[!is.finite(z)] <- 0
+z <- pmax(-2, pmin(2, z))
+
+# Heatmap
+modules <- factor(rep(names(genes), lengths(genes)),
+                  levels = names(genes))
+
+ht <- Heatmap(z, name = "Row z-score",
+  col = colorRamp2(c(-2, 0, 2), c("#2C5AA0", "#FFFDF8", "#C7363F")),
+  row_split = modules,
+  cluster_rows = FALSE, cluster_columns = FALSE,
+  show_row_dend = FALSE, show_column_names = TRUE,
+  row_title_rot = 0, row_gap = grid::unit(1.2, "mm"),
+  column_names_rot = 0)
+
+pdf("Motor_Gene_Heatmap.pdf", width = 7, height = 8)
+draw(ht)
+dev.off()
 
 
 ##5b
