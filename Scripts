@@ -13,16 +13,19 @@ library(ggplot2)
 obj <- readRDS("path/to/your/seurat.RDS")
 
 # Cell-type annotation
-celltypes <- c(
-  "1_Stromal", "5_LMPP_Myeloid", "1_Stromal", "5_LMPP_Myeloid",
-  "2_Endo", "8_EMP_Myeloid", rep("4_HPC", 3),
-  rep("1_Stromal", 2), "4_HPC", "7_EMP", "9_EMP_Mk",
-  "6_LMPP_Lymphoid", "9_EMP_Mk", "1_Stromal", "4_HPC",
-  "1_Stromal", "10_EMP_Ery", "2_Endo", "1_Stromal",
-  "9_EMP_Mk", "2_Endo", "3_HE"
+obj <- RenameIdents(obj,
+  "0"="1_Stromal", "1"="5_LMPP_Myeloid", "2"="1_Stromal",
+  "3"="5_LMPP_Myeloid", "4"="2_Endo", "5"="8_EMP_Myeloid",
+  "6"="4_HPC", "7"="4_HPC", "8"="4_HPC",
+  "9"="1_Stromal", "10"="1_Stromal", "11"="4_HPC",
+  "12"="7_EMP", "13"="9_EMP_Mk", "14"="6_LMPP_Lymphoid",
+  "15"="9_EMP_Mk", "16"="1_Stromal", "17"="4_HPC",
+  "18"="1_Stromal", "19"="10_EMP_Ery", "20"="2_Endo",
+  "21"="1_Stromal", "22"="9_EMP_Mk", "23"="2_Endo",
+  "24"="3_HE"
 )
 
-obj <- RenameIdents(obj, setNames(celltypes, as.character(0:24)))
+
 obj$cell.type <- Idents(obj)
 
 
@@ -151,20 +154,65 @@ ggsave("Slingshot_Pseudotime.pdf", p, width = 5, height = 4)
 
 ##1f-k
 
+library(CellChat)
+
+# CellChat analysis
+DefaultAssay(obj) <- "RNA"
+cellchat <- createCellChat(obj, group.by = "cell.type", assay = "RNA")
+cellchat@DB <- CellChatDB.human
+
+cellchat <- subsetData(cellchat)
+cellchat <- identifyOverExpressedGenes(cellchat)
+cellchat <- identifyOverExpressedInteractions(cellchat)
+cellchat <- smoothData(cellchat, adj = PPI.human)
+cellchat <- computeCommunProb(cellchat, type = "triMean")
+cellchat <- filterCommunication(cellchat, min.cells = 10)
+cellchat <- computeCommunProbPathway(cellchat)
+cellchat <- aggregateNet(cellchat)
+cellchat <- netAnalysis_computeCentrality(cellchat)
+
+saveRDS(cellchat, "CellChat.rds")
+
+# Signaling networks
+pathways <- c("TGFb", "BMP", "IGFBP")
+
+pdf("CellChat_Networks.pdf", width = 6, height = 6)
+for (pathway in pathways) {
+  netVisual_aggregate(cellchat, signaling = pathway,
+                      layout = "circle")
+}
+dev.off()
+
+# Signaling roles
+pdf("CellChat_Signaling_Roles.pdf", width = 8, height = 5)
+netAnalysis_signalingRole_scatter(cellchat)
+dev.off()
+
+# Communication patterns
+pdf("CellChat_Heatmap.pdf", width = 8, height = 6)
+netAnalysis_signalingRole_heatmap(cellchat, pattern = "outgoing")
+dev.off()
 
 
 
 
 
 ###Fig2
+##2a Khanh
+
+
+
+
+
+
 
 ##2b
-library(Seurat)
+
 library(Signac)
 library(JASPAR2020)
 library(TFBSTools)
 library(BSgenome.Hsapiens.UCSC.hg38)
-library(ggplot2)
+
 
 # Load Seurat object
 obj <- readRDS("path/to/your/seurat.RDS")
@@ -197,3 +245,125 @@ p <- ggplot(top20, aes(fold.enrichment,
   labs(x = "Fold enrichment", y = NULL)
 
 ggsave("Stromal_vs_Endo_motifs.pdf", p, width = 5, height = 6)
+
+
+
+
+###2c khanh
+
+
+
+
+
+
+
+###2d-f Chris
+
+
+
+
+
+
+
+
+
+
+
+
+
+###Fig3.
+###3a-d Khanh
+
+
+
+
+
+
+
+
+
+
+
+###3f Chris?
+
+
+
+
+
+
+
+
+
+###3g-h Chris
+
+
+
+
+
+
+###Fig4.
+###4a-b Chris
+
+
+
+
+
+
+
+###4c,4e
+
+DefaultAssay(obj) <- "RNA"
+Idents(obj) <- "cell.type"
+
+# Motor genes
+genes <- list(
+  Dynein = c("DYNC1H1", "DYNC2H1", "DYNC1I2", "DYNC1LI1",
+             "DYNC1LI2", "DYNLL1", "DYNLT1", "DYNLRB1"),
+  Kinesin = c("KIFC3", "KIF1A", "KIF1B", "KIF1C",
+              "KIF2A", "KIF3B", "KIF5B", "KIF13B", "KIF21A")
+)
+
+# Dot plots
+for (name in names(genes)) {
+  p <- DotPlot(obj, features = genes[[name]],
+               cols = c("lightgrey", "blue")) +
+    coord_flip() + theme_classic() +
+    labs(x = NULL, y = NULL)
+
+  ggsave(paste0(name, "_DotPlot.pdf"), p, width = 5, height = 4)
+}
+
+
+
+###4d,4f,4g Chris
+
+
+
+
+
+
+
+
+
+
+
+
+###Fig5.
+
+
+###5a
+
+
+
+
+
+
+##5b
+
+
+
+
+
+
+###5c
+
