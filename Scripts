@@ -1,7 +1,7 @@
-# Add scripts here or else make a new file to add them?
 
 
-## Add scripts here or else make a new file to add them?
+
+
 
 ###Fig 1.
 
@@ -564,44 +564,310 @@ ggsave("Azimuth_UMAP.pdf", p, width = 10, height = 6)
 
 ##1g
 
+library(SeuratWrappers)
+library(monocle3)
+library(dplyr)
+library(dbscan)
+library(igraph)
 
 
+# Load Seurat object
+obj <- readRDS("path/to/your/seurat.RDS")
 
+stages <- c("1_Stromal", "2_Endo", "3_HE", "4_HPC")
 
+stopifnot(
+  "cell.type" %in% colnames(obj@meta.data),
+  "SCT" %in% Assays(obj),
+  "umap.rna" %in% Reductions(obj)
+)
 
+obj <- subset(obj, subset = cell.type %in% stages)
+obj$cell.type <- factor(obj$cell.type, levels = stages)
+
+# Use the existing RNA UMAP
+DefaultAssay(obj) <- "SCT"
+obj[["umap"]] <- CreateDimReducObject(
+  embeddings = Embeddings(obj, "umap.rna"),
+  key = "UMAP_",
+  assay = "SCT"
+)
+
+# Monocle3 trajectory analysis
+cds <- as.cell_data_set(obj, assay = "SCT", reduction = "umap")
+colData(cds)$cell.type <- obj$cell.type[colnames(cds)]
+
+cds <- cluster_cells(cds, reduction_method = "UMAP")
+
+cds <- learn_graph(
+  cds,
+  use_partition = FALSE,
+  close_loop = FALSE,
+  learn_graph_control = list(
+    minimal_branch_len = 20,
+    euclidean_distance_ratio = 1,
+    geodesic_distance_ratio = 1/3,
+    orthogonal_proj_tip = TRUE,
+    prune_graph = TRUE
+  )
+)
+
+# Select the dominant stromal principal node as the root
+v <- as.matrix(
+  principal_graph_aux(cds)[["UMAP"]]$pr_graph_cell_proj_closest_vertex
+)
+
+nodes <- igraph::V(principal_graph(cds)[["UMAP"]])$name
+cell_nodes <- as.character(v[, 1])
+
+if (!all(cell_nodes %in% nodes)) {
+  cell_nodes <- nodes[as.integer(cell_nodes)]
+}
+
+names(cell_nodes) <- rownames(v)
+cell_nodes <- cell_nodes[colnames(cds)]
+
+stromal_cells <- colnames(cds)[
+  colData(cds)$cell.type == "1_Stromal"
+]
+
+root <- names(which.max(table(cell_nodes[stromal_cells])))
+
+cds <- order_cells(
+  cds,
+  reduction_method = "UMAP",
+  root_pr_nodes = root
+)
+
+# Check pseudotime distribution across cell types
+pt <- pseudotime(cds)
+
+print(tapply(
+  pt[colnames(cds)],
+  colData(cds)$cell.type,
+  median,
+  na.rm = TRUE
+))
+
+# Extract UMAP coordinates and pseudotime
+um <- reducedDims(cds)$UMAP
+
+df <- data.frame(
+  UMAP1 = um[, 1],
+  UMAP2 = um[, 2],
+  pseudotime = pt[rownames(um)],
+  celltype = as.character(colData(cds)$cell.type)
+)
+
+# DBSCAN filtering for visualization only
+filter_umap <- function(d, eps, minPts) {
+  if (nrow(d) < minPts * 3) return(d)
+
+  r <- max(
+    diff(range(d$UMAP1)),
+    diff(range(d$UMAP2))
+  )
+
+  if (!is.finite(r) || r == 0) return(d)
+
+  cl <- dbscan::dbscan(
+    d[, c("UMAP1", "UMAP2")] / r,
+    eps = eps,
+    minPts = minPts
+  )$cluster
+
+  if (!any(cl > 0)) return(d)
+
+  main <- as.integer(
+    names(which.max(table(cl[cl > 0])))
+  )
+
+  d[cl == main, ]
+}
+
+# Retain all HE cells
+plot_df <- bind_rows(
+  filter_umap(filter(df, celltype == stages[1]), 0.035, 12),
+  filter_umap(filter(df, celltype == stages[2]), 0.040, 8),
+  filter(df, celltype == stages[3]),
+  filter_umap(filter(df, celltype == stages[4]), 0.035, 10)
+) %>%
+  filter(is.finite(pseudotime))
+
+# Plot pseudotime UMAP
+p <- ggplot(
+  plot_df,
+  aes(UMAP1, UMAP2, color = pseudotime)
+) +
+  geom_point(size = 0.32, alpha = 0.90) +
+  scale_color_viridis_c(
+    option = "plasma",
+    direction = 1,
+    name = "Pseudotime"
+  ) +
+  labs(
+    x = "UMAP_1",
+    y = "UMAP_2"
+  ) +
+  coord_equal() +
+  theme_classic(base_size = 12) +
+  theme(
+    axis.title = element_text(size = 11, color = "black"),
+    axis.text = element_text(size = 9, color = "black"),
+    axis.line = element_line(linewidth = 0.5),
+    legend.position = "none"
+  )
+
+# Export figures
+ggsave(
+  "Monocle3_EHT_pseudotime.png",
+  p, width = 5.5, height = 5.2, dpi = 600
+)
 
 
 ##Supplementary Fig2.
 
+library(ComplexHeatmap)
+library(patchwork)
 
+# Load annotated Seurat object
+obj <- readRDS("path/to/your/seurat.RDS")
 
+# Use normalized RNA expression
+DefaultAssay(obj) <- "RNA"
 
+expr <- GetAssayData(obj, assay = "RNA", layer = "data")
+meta <- obj@meta.data
 
+# Create CellChat object
+cellchat <- createCellChat(
+  object = expr,
+  meta = meta,
+  group.by = "cell.type"
+)
+
+# Human ligand-receptor database
+cellchat@DB <- CellChatDB.human
+
+# Identify cell-cell communication
+cellchat <- subsetData(cellchat)
+cellchat <- identifyOverExpressedGenes(cellchat)
+cellchat <- identifyOverExpressedInteractions(cellchat)
+
+cellchat <- computeCommunProb(cellchat)
+cellchat <- filterCommunication(cellchat, min.cells = 10)
+
+# Infer signaling pathway communication
+cellchat <- computeCommunProbPathway(cellchat)
+cellchat <- aggregateNet(cellchat)
+
+# Compute signaling roles
+cellchat <- netAnalysis_computeCentrality(
+  cellchat,
+  slot.name = "netP"
+)
+
+# Save analyzed CellChat object
+saveRDS(cellchat, "cellchat.RDS")
+
+# Load analyzed CellChat object
+cellchat <- readRDS("path/to/your/cellchat.RDS")
+
+# Signaling pathway heatmap
+ht <- netAnalysis_signalingRole_heatmap(
+  cellchat,
+  pattern = "outgoing",
+  signaling = NULL,
+  color.heatmap = "Greens",
+  width = 10,
+  height = 20
+)
+
+# Save figure
+pdf("CellChat_signaling_heatmap.pdf", width = 5, height = 9)
+ComplexHeatmap::draw(ht)
+dev.off()
 
 
 ##Supplementary Fig3.
 
 
+##4a
+obj <- readRDS("path/to/your/ATAC_QC_seurat.RDS")
+DefaultAssay(obj) <- "ATAC"
+
+obj$library <- factor(obj$library, levels = c("HE", "HPC"))
+cols <- c("#F8766D", "#00BFC4")
 
 
+features <- c(
+  "nCount_ATAC",
+  "nFeature_ATAC",
+  "TSS.enrichment",
+  "nucleosome_signal"
+)
+
+plots <- lapply(features, function(f) {
+  VlnPlot(obj, features = f, group.by = "library",
+          cols = cols, pt.size = 0) +
+    geom_boxplot(width = 0.13, fill = "white",
+                 outlier.shape = NA) +
+    theme_classic() +
+    theme(legend.position = "none")
+})
+
+plots[[1]] <- plots[[1]] + scale_y_log10()
+plots[[2]] <- plots[[2]] + scale_y_log10()
+plots[[3]] <- plots[[3]] + coord_cartesian(ylim = c(0, 12))
+plots[[4]] <- plots[[4]] + coord_cartesian(ylim = c(0, 2.2))
+
+p <- wrap_plots(plots, ncol = 2) +
+  plot_annotation(tag_levels = "a")
+
+ggsave("ATAC_QC_abcd.png", p, width = 8.5, height = 7.2, dpi = 600)
+
+##4b
+
+library(Signac)
+library(ggplot2)
+library(patchwork)
+
+# Use the same Seurat object and colors as panel a
+cols <- c("HE" = "#F8766D", "HPC" = "#00BFC4")
 
 
+p_b <- TSSPlot(obj, assay = "ATAC", group.by = "library") +
+  scale_color_manual(values = cols) +
+  theme_classic()
 
+##4c
+p_c <- FragmentHistogram(
+  obj, assay = "ATAC", group.by = "library"
+) + theme_classic()
 
-##Supplementary Fig4.
+##4d
+# Requires previously calculated QC metrics
+qc <- obj@meta.data
+qc$library <- factor(qc$library, levels = c("HE", "HPC"))
 
+plot_qc <- function(feature, label) {
+  ggplot(qc, aes(x = library, y = .data[[feature]], fill = library)) +
+    geom_violin(scale = "width", trim = TRUE) +
+    geom_boxplot(width = 0.16, fill = "white",
+                 outlier.shape = NA) +
+    scale_fill_manual(values = cols) +
+    labs(x = NULL, y = label) +
+    theme_classic() +
+    theme(legend.position = "none")
+}
 
+p_d <- plot_qc("pct_reads_in_peaks", "Fragments in peaks (%)") +
+  plot_qc("blacklist_ratio", "Blacklist ratio")
 
-
-
-
-
-##Supplementary Fig5.
-
-
-
-
-
+# Export panels
+ggsave("Panel_b_TSS.pdf", p_b, width = 7.5, height = 5.5)
+ggsave("Panel_c_Fragment.pdf", p_c, width = 8, height = 5)
+ggsave("Panel_d_FRiP_Blacklist.pdf", p_d, width = 8.8, height = 4.2)
 
 
 ##Supplementary Fig6.
