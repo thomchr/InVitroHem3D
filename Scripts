@@ -353,67 +353,156 @@ for (name in names(genes)) {
 
 ###5a
 
+library(dplyr)
+library(tidyr)
+library(ggrepel)
 library(ComplexHeatmap)
 library(circlize)
 
-# Gene modules
+
+obj <- readRDS("path/to/your/seurat.RDS")
+
+# Motor gene modules
 genes <- list(
-  Dynein = c("DYNC2H1", "DYNC1H1", "DYNC1I2", "DYNLL1"),
-  `Dynactin / adaptors` = c("BICD1", "HOOK3", "PAFAH1B1", "DCTN2"),
-  `Transport kinesins` = c("KIF5B", "KIF21A", "KIF1B", "KIF13B"),
-  `Mitotic motors` = c("TPX2", "CENPF", "CENPE", "KIF20B"),
-  `MT dynamics` = c("TUBA1A", "TUBB3", "TUBB", "TUBA1B"),
-  `MT proteins` = c("MTUS1", "CLIP1", "MAP1B", "MAP4"),
-  `Polarity / transport` = c("PARD3", "RAC1", "CDC42", "VCL")
+  "Dynein" = c("DYNC2H1","DYNC1H1","DYNC1I2","DYNLL1"),
+  "Dynactin / adaptors" = c("BICD1","HOOK3","PAFAH1B1","DCTN2"),
+  "Transport kinesins" = c("KIF5B","KIF21A","KIF1B","KIF13B"),
+  "Mitotic motors" = c("TPX2","CENPF","CENPE","KIF20B"),
+  "MT dynamics" = c("TUBA1A","TUBB3","TUBB","TUBA1B"),
+  "MT proteins" = c("MTUS1","CLIP1","MAP1B","MAP4"),
+  "Polarity / transport" = c("PARD3","RAC1","CDC42","VCL")
 )
 
-stages <- c("1_Stromal", "2_Endo", "3_HE", "4_HPC")
-all_genes <- unlist(genes)
-stopifnot(all(all_genes %in% rownames(obj[["RNA"]])))
-
-# Balanced bootstrap expression
-set.seed(12345)
+# Balanced expression
+stages <- c("1_Stromal","2_Endo","3_HE","4_HPC")
 cells <- split(colnames(obj), as.character(obj$cell.type))
+genes <- lapply(genes, intersect, y = rownames(obj[["RNA"]]))
+g <- unlist(genes)
+x <- GetAssayData(obj, assay = "RNA", layer = "data")[g, ]
 n <- min(lengths(cells[stages]))
-expr <- GetAssayData(obj, assay = "RNA", layer = "data")[all_genes, ]
 
-boot <- replicate(100, sapply(stages, function(s)
-  Matrix::rowMeans(expr[, sample(cells[[s]], n, replace = TRUE),
-                        drop = FALSE])), simplify = FALSE)
+set.seed(12345)
+mat <- sapply(stages, function(s) {
+  replicate(100, Matrix::rowMeans(
+    x[, sample(cells[[s]], n, replace = TRUE), drop = FALSE]
+  )) |> apply(1, median)
+})
 
-avg <- sapply(seq_along(stages), function(i)
-  apply(sapply(boot, function(x) x[, i]), 1, median))
-rownames(avg) <- all_genes
-colnames(avg) <- c("Stroma", "Endo", "HE", "HPC")
-
-# Row z-score
-z <- t(scale(t(avg)))
+z <- t(scale(t(mat)))
 z[!is.finite(z)] <- 0
-z <- pmax(-2, pmin(2, z))
 
 # Heatmap
-modules <- factor(rep(names(genes), lengths(genes)),
-                  levels = names(genes))
-
-ht <- Heatmap(z, name = "Row z-score",
-  col = colorRamp2(c(-2, 0, 2), c("#2C5AA0", "#FFFDF8", "#C7363F")),
-  row_split = modules,
+pdf("Fig_A.pdf", 6, 9)
+ComplexHeatmap::Heatmap(
+  pmax(-2, pmin(2, z)),
+  name = "Row z-score",
+  col = circlize::colorRamp2(c(-2,0,2),
+                             c("#5474AE","white","#D95C60")),
+  row_split = factor(rep(names(genes), lengths(genes)),
+                     levels = names(genes)),
   cluster_rows = FALSE, cluster_columns = FALSE,
-  show_row_dend = FALSE, show_column_names = TRUE,
-  row_title_rot = 0, row_gap = grid::unit(1.2, "mm"),
-  column_names_rot = 0)
-
-pdf("Motor_Gene_Heatmap.pdf", width = 7, height = 8)
-draw(ht)
-dev.off()
-
-
-##5b
+  cluster_row_slices = FALSE,
+  row_names_side = "right"
+)
 
 
 
+## 5b
+
+modules <- genes[names(genes) != "MT proteins"]
+
+y <- as.matrix(x[unlist(modules), unlist(cells[stages])])
+z <- t(scale(t(y)))
+z[!is.finite(z)] <- 0
+
+scores <- sapply(modules, function(g)
+  colMeans(z[g, , drop = FALSE]))
+
+# Balanced bootstrap
+set.seed(12345)
+df <- dplyr::bind_rows(lapply(stages, function(s) {
+  b <- replicate(500, colMeans(scores[
+    sample(cells[[s]], n, replace = TRUE), , drop = FALSE]))
+  data.frame(stage = s, module = colnames(scores),
+             mean = rowMeans(b),
+             lower = apply(b, 1, quantile, .025),
+             upper = apply(b, 1, quantile, .975))
+}))
+
+df$stage <- factor(df$stage, levels = stages,
+                   labels = c("Stroma", "Endo", "HE", "HPC"))
+df$module <- factor(df$module, levels = names(modules))
+
+# Plot
+pB <- ggplot(df, aes(stage, mean, group = 1)) +
+  geom_hline(yintercept = 0, linetype = 2, color = "grey80") +
+  geom_line(color = "grey40") +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = .08) +
+  geom_point(aes(color = stage), size = 2.5) +
+  facet_wrap(~module, ncol = 2) +
+  scale_color_manual(values = c("#E7B06A","#D98A5F",
+                                "#C85C5C","#8E3B56")) +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 25, hjust = 1),
+        strip.text = element_text(face = "bold")) +
+  labs(x = NULL, y = "Module score")
+
+ggsave("Fig_B.pdf", pB, width = 7, height = 7)
+
+
+# 5c
+
+# 5c. RNA–ATAC linked-peak association
+cdata <- read.csv("path/to/your/linked_peak_results.csv")
+
+pC <- ggplot(cdata, aes(delta_atac, delta_rna)) +
+  geom_hline(yintercept = 0, linetype = 2, color = "grey75") +
+  geom_vline(xintercept = 0, linetype = 2, color = "grey75") +
+  geom_point(aes(fill = module, size = linked_peak_count),
+             shape = 21, color = "grey40", alpha = 0.8) +
+  ggrepel::geom_text_repel(
+    data = subset(cdata, gene %in% c("DYNC1H1", "DYNC2H1",
+                                    "KIF5B", "KIF13B", "MTUS1")),
+    aes(label = gene), size = 3) +
+  facet_wrap(~transition, nrow = 1, scales = "free") +
+  scale_size_continuous(name = "Linked peaks", range = c(2, 7)) +
+  theme_classic() +
+  labs(x = "Change in linked-peak accessibility",
+       y = "Change in RNA expression",
+       fill = "Functional module")
+
+ggsave("Fig_C.pdf", pC, width = 12, height = 5)
 
 
 
-###5c
+###Fig6.
+##6a khanh
+
+
+
+
+
+###6b Khanh
+
+
+
+
+
+6c,d,e,f Chris
+
+
+
+
+
+
+
+####Supplement Fig
+
+##Supplementary Fig1.
+##Supplementary Fig1.
+##Supplementary Fig1.
+
+
+
 
