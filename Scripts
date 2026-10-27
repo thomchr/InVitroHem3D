@@ -500,9 +500,159 @@ ggsave("Fig_C.pdf", pC, width = 12, height = 5)
 ####Supplement Fig
 
 ##Supplementary Fig1.
-##Supplementary Fig1.
-##Supplementary Fig1.
 
+
+
+##1e
+
+library(SingleR)
+library(celldex)
+library(patchwork)
+
+obj <- readRDS("path/to/your/seurat.RDS")
+
+# SingleR annotation
+DefaultAssay(obj) <- "RNA"
+obj[["RNA"]] <- JoinLayers(obj[["RNA"]])
+obj <- NormalizeData(obj)
+sce <- as.SingleCellExperiment(obj, assay = "RNA")
+
+bp <- BlueprintEncodeData()
+hp <- HumanPrimaryCellAtlasData()
+
+obj$bp.fine <- SingleR(sce, ref = bp, labels = bp$label.fine)$labels
+obj$hp.main <- SingleR(sce, ref = hp, labels = hp$label.main)$labels
+
+# UMAP visualization
+plot_umap <- function(group) {
+  DimPlot(obj, reduction = "umap.rna", group.by = group,
+          label = TRUE, repel = TRUE, label.size = 3,
+          pt.size = 0.1) + NoLegend() + ggtitle(group)
+}
+
+p <- plot_umap("bp.fine") | plot_umap("hp.main")
+
+ggsave("Fig_1e_SingleR.pdf", p, width = 12, height = 6)
+
+     
+
+
+##1f
+
+library(ggsci)
+
+# Import Azimuth predictions  
+## Upload the Seurat dataset to the Azimuth web portal (https://azimuth.hubmapconsortium.org/) and download the predicted cell annotations as azimuth_pred.tsv.
+predictions <- read.delim("azimuth_pred.tsv", row.names = 1)
+obj <- AddMetaData(obj, metadata = predictions)
+
+# Plot Azimuth annotations
+p <- DimPlot(
+  obj,
+  reduction = "umap.rna",
+  group.by = "predicted.annotation.l1",
+  label = FALSE
+) +
+  scale_color_igv() +
+  guides(color = guide_legend(
+    override.aes = list(size = 2), ncol = 1
+  ))
+
+ggsave("Azimuth_UMAP.pdf", p, width = 10, height = 6)
+
+
+
+##1g
+
+
+
+
+
+
+
+
+##Supplementary Fig2.
+
+
+
+
+
+
+
+##Supplementary Fig3.
+
+
+
+
+
+
+
+
+##Supplementary Fig4.
+
+
+
+
+
+
+
+##Supplementary Fig5.
+
+
+
+
+
+
+
+##Supplementary Fig6.
+
+
+
+
+
+
+
+
+##Supplementary Fig7.
+
+
+
+
+
+
+
+
+##Supplementary Fig8.
+
+
+
+
+
+
+
+##Supplementary Fig9.
+
+
+
+
+
+
+##Supplementary Fig10.
+
+
+
+
+
+##Supplementary Fig11.
+
+
+
+
+
+
+
+
+##Supplementary Fig12.
 
 
 
