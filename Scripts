@@ -1,12 +1,9 @@
+##We merged the two Seurat objects using the `merge()` function following the Satija Lab's Seurat workflow (https://satijalab.org/seurat/archive/v4.3/merge)and saved the merged object as an RDS file.
 
-
-
-
-
+###The downstream analyses were performed as follows:
 ###Fig 1.
 
 ##1b
-
 library(Seurat)
 library(ggplot2)
 
@@ -69,9 +66,6 @@ p <- DotPlot(obj, features = genes,
   labs(x = NULL, y = NULL)
 
 ggsave("Marker_DotPlot.pdf", p, width = 9, height = 7)
-
-
-
 
 ##1d
 
@@ -198,13 +192,6 @@ dev.off()
 
 
 ###Fig2
-##2a Khanh
-
-
-
-
-
-
 
 ##2b
 
@@ -247,68 +234,7 @@ p <- ggplot(top20, aes(fold.enrichment,
 ggsave("Stromal_vs_Endo_motifs.pdf", p, width = 5, height = 6)
 
 
-
-
-###2c khanh
-
-
-
-
-
-
-
-###2d-f Chris
-
-
-
-
-
-
-
-
-
-
-
-
-
-###Fig3.
-###3a-d Khanh
-
-
-
-
-
-
-
-
-
-
-
-###3f Chris?
-
-
-
-
-
-
-
-
-
-###3g-h Chris
-
-
-
-
-
-
 ###Fig4.
-###4a-b Chris
-
-
-
-
-
-
 
 ###4c,4e
 
@@ -332,20 +258,6 @@ for (name in names(genes)) {
 
   ggsave(paste0(name, "_DotPlot.pdf"), p, width = 5, height = 4)
 }
-
-
-
-###4d,4f,4g Chris
-
-
-
-
-
-
-
-
-
-
 
 
 ###Fig5.
@@ -476,28 +388,7 @@ ggsave("Fig_C.pdf", pC, width = 12, height = 5)
 
 
 
-###Fig6.
-##6a khanh
 
-
-
-
-
-###6b Khanh
-
-
-
-
-
-6c,d,e,f Chris
-
-
-
-
-
-
-
-####Supplement Fig
 
 ##Supplementary Fig1.
 
@@ -792,7 +683,7 @@ dev.off()
 ##Supplementary Fig3.
 
 
-##4a
+##3a
 obj <- readRDS("path/to/your/ATAC_QC_seurat.RDS")
 DefaultAssay(obj) <- "ATAC"
 
@@ -826,29 +717,29 @@ p <- wrap_plots(plots, ncol = 2) +
 
 ggsave("ATAC_QC_abcd.png", p, width = 8.5, height = 7.2, dpi = 600)
 
-##4b
+##3b
 
 library(Signac)
 library(ggplot2)
 library(patchwork)
 
 # Use the same Seurat object and colors as panel a
-cols <- c("HE" = "#F8766D", "HPC" = "#00BFC4")
+cols <- c("Adherent" = "#F8766D", "HPC" = "#00BFC4")
 
 
 p_b <- TSSPlot(obj, assay = "ATAC", group.by = "library") +
   scale_color_manual(values = cols) +
   theme_classic()
 
-##4c
+##3c
 p_c <- FragmentHistogram(
   obj, assay = "ATAC", group.by = "library"
 ) + theme_classic()
 
-##4d
+##3d
 # Requires previously calculated QC metrics
 qc <- obj@meta.data
-qc$library <- factor(qc$library, levels = c("HE", "HPC"))
+qc$library <- factor(qc$library, levels = c("Adherent", "HPC"))
 
 plot_qc <- function(feature, label) {
   ggplot(qc, aes(x = library, y = .data[[feature]], fill = library)) +
