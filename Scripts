@@ -872,53 +872,336 @@ ggsave("Panel_d_FRiP_Blacklist.pdf", p_d, width = 8.8, height = 4.2)
 
 ##Supplementary Fig6.
 
+##6a
+
+library(GenomicRanges)
+library(Matrix)
 
 
+obj <- readRDS("path/to/your/seurat.RDS")
+DefaultAssay(obj) <- "ATAC"
+
+groups <- c("Endo", "HE", "HPC")
+genes <- c("CDH5", "MYB", "PTPRC", "RUNX1")
+cols <- c(Endo="#F8766D", HE="#00BA38", HPC="#619CFF")
+
+obj <- subset(obj, subset = cell.type %in% groups)
+Idents(obj) <- "cell.type"
 
 
+da1 <- FindMarkers(obj, ident.1="HE", ident.2="Endo",
+                   assay="ATAC", test.use="LR",
+                   latent.vars="nCount_ATAC",
+                   min.pct=0, logfc.threshold=0)
+
+da2 <- FindMarkers(obj, ident.1="HPC", ident.2="HE",
+                   assay="ATAC", test.use="LR",
+                   latent.vars="nCount_ATAC",
+                   min.pct=0, logfc.threshold=0)
+
+summary_da <- function(x) {
+  fc <- grep("^avg_log.*FC$", names(x), value=TRUE)[1]
+  c(Gained=sum(x$p_val_adj<0.05 & x[[fc]]>0, na.rm=TRUE),
+    Lost=sum(x$p_val_adj<0.05 & x[[fc]]<0, na.rm=TRUE))
+}
+
+da <- data.frame(
+  transition=rep(c("Endo → HE","HE → HPC"), each=2),
+  change=rep(c("Gained","Lost"), 2),
+  count=c(summary_da(da1), summary_da(da2)),
+  total=rep(c(nrow(da1), nrow(da2)), each=2)
+)
+da$percent <- 100*da$count/da$total
+
+p_a <- ggplot(da, aes(transition, percent, fill=change)) +
+  geom_col(position="dodge") +
+  scale_fill_manual(values=c(Gained="#B2182B", Lost="#2166AC")) +
+  theme_classic()
+
+##6b
+for (gene in genes) {
+  p <- CoveragePlot(obj, region=gene, group.by="cell.type",
+                    idents=groups, assay="ATAC",
+                    peaks=TRUE, annotation=TRUE, links=FALSE)
+  ggsave(paste0(gene, "_coverage.pdf"), p, width=9, height=4.5)
+}
+
+# C. Mean peak accessibility per locus
+counts <- GetAssayData(obj, assay="ATAC", layer="counts")
+peaks <- granges(obj[["ATAC"]])
+annotation <- Annotation(obj[["ATAC"]])
+
+for (gene in genes) {
+  region <- range(annotation[annotation$gene_name==gene])
+  region <- Extend(region, upstream=10000, downstream=10000)
+  idx <- unique(queryHits(findOverlaps(peaks, region)))
+
+  df <- do.call(rbind, lapply(groups, function(g) {
+    x <- counts[, WhichCells(obj, idents=g), drop=FALSE]
+    cpm <- Matrix::rowSums(x)/sum(x)*1e6
+    data.frame(group=g, value=mean(log2(cpm[idx]+1)))
+  }))
+
+  p <- ggplot(df, aes(group, value, fill=group)) +
+    geom_col(color="black") +
+    geom_text(aes(label=round(value,2)), vjust=-0.4) +
+    scale_fill_manual(values=cols) +
+    labs(title=paste(length(idx),"called ATAC peaks"),
+         x=NULL, y="Mean accessibility\nlog2(CPM + 1)") +
+    theme_classic() +
+    theme(legend.position="none")
+
+  ggsave(paste0(gene,"_accessibility.pdf"), p, width=4, height=4)
+}
+
+ggsave("ATAC_DA_summary.pdf", p_a, width=6, height=4)
+
+##6c
+
+# Use the Seurat object from previous steps
+genes <- c("CDH5", "MYB", "PTPRC", "RUNX1")
+groups <- c("Endo", "HE", "HPC")
+cols <- c(Endo="#F8766D", HE="#00BA38", HPC="#619CFF")
+
+counts <- GetAssayData(obj, assay="ATAC", layer="counts")
+peaks <- granges(obj[["ATAC"]])
+anno <- Annotation(obj[["ATAC"]])
+
+for (gene in genes) {
+  region <- range(anno[anno$gene_name == gene])
+  region <- Extend(region, upstream=10000, downstream=10000)
+  idx <- unique(queryHits(findOverlaps(peaks, region)))
+
+  df <- do.call(rbind, lapply(groups, function(g) {
+    x <- counts[, WhichCells(obj, idents=g), drop=FALSE]
+    cpm <- Matrix::rowSums(x) / sum(x) * 1e6
+    data.frame(group=g, value=mean(log2(cpm[idx]+1)))
+  }))
+
+  df$group <- factor(df$group, levels=groups)
+
+  p <- ggplot(df, aes(group, value, fill=group)) +
+    geom_col(width=0.7, color="black") +
+    geom_text(aes(label=sprintf("%.2f",value)), vjust=-0.4) +
+    scale_fill_manual(values=cols) +
+    labs(title=paste(length(idx),"called ATAC peaks"),
+         x=NULL, y="Mean accessibility\nlog2(CPM + 1)") +
+    theme_classic() +
+    theme(legend.position="none")
+
+  ggsave(paste0(gene,"_accessibility.pdf"), p, width=4, height=4)
+}
 
 
 
 ##Supplementary Fig7.
 
+##7a
+
+library(GenomicRanges)
+library(Matrix)
+
+obj <- readRDS("ATAC_object.rds")
+DefaultAssay(obj) <- "ATAC"
+Idents(obj) <- "ATAC_group"
+obj <- subset(obj, idents=c("HE","HPC"))
+
+genes <- c("CDH5","KDR","PTPRC","SPI1","MYB","RUNX1")
+cols <- c(HE="#F8766D",HPC="#00BFC4")
+expected <- setNames(c("HE","HE",rep("HPC",4)),genes)
+regions <- c("chr16-66360000-66415000","chr4-55065000-55130000",
+             "chr1-198600000-198690000","chr11-47345000-47390000",
+             "chr6-135175000-135225000","chr21-35025000-35085000")
 
 
+p <- Map(function(g,r)
+  CoveragePlot(obj,region=r,group.by="ATAC_group",
+               cols=cols,peaks=TRUE,annotation=TRUE,links=FALSE) +
+    plot_annotation(title=paste(g,"locus")), genes,regions)
+ggsave("Panel_C.pdf",wrap_plots(p,ncol=2),width=15,height=16)
 
+##7b
+x <- GetAssayData(obj,assay="ATAC",layer="counts")
+pr <- granges(obj[["ATAC"]])
+a <- Annotation(obj[["ATAC"]])
+cpm <- sapply(c("HE","HPC"),function(g) {
+  m <- x[,WhichCells(obj,idents=g),drop=FALSE]
+  Matrix::rowSums(m)/sum(m)*1e6
+})
 
+df <- do.call(rbind,lapply(genes,function(g) {
+  r <- range(a[a$gene_name==g])
+  start(r) <- pmax(1,start(r)-20000)
+  end(r) <- end(r)+20000
+  i <- unique(subjectHits(findOverlaps(r,pr)))
+  d <- log2(cpm[i,1]+1)-log2(cpm[i,2]+1)
+  i <- i[if(expected[g]=="HE") d>0 else d<0]
+  d <- log2(cpm[i,1]+1)-log2(cpm[i,2]+1)
+  score <- pmax(cpm[i,1],cpm[i,2])
+  pool <- which(score>=1 & abs(d)>=0.5)
+  if(length(pool)<2) pool <- seq_along(i)
+  k <- head(pool[order(d[pool],decreasing=expected[g]=="HE")],3)
+  i <- i[k][order(start(pr[i[k]]))]
+  data.frame(gene=g,peak=seq_along(i),
+             HE=log2(cpm[i,1]+1),HPC=log2(cpm[i,2]+1))
+}))
 
+df$label <- factor(paste0(df$gene,"-P",df$peak),
+                   levels=rev(paste0(df$gene,"-P",df$peak)))
+
+ggplot(df) +
+  geom_segment(aes(x=HE,xend=HPC,y=label,yend=label),color="grey75") +
+  geom_point(aes(HE,label),color=cols["HE"],size=2.5) +
+  geom_point(aes(HPC,label),color=cols["HPC"],size=2.5) +
+  labs(x="log2(CPM + 1)",y=NULL) +
+  theme_classic()
+
+ggsave("Panel_D.pdf",width=6,height=9)
 
 
 ##Supplementary Fig8.
 
+##8a
+library(DESeq2)
+library(dplyr)
+library(tidyr)
+library(pheatmap)
 
 
+vsd <- vst(dds, blind=FALSE)
+mat <- assay(vsd)
+meta <- as.data.frame(colData(dds))
+meta$sample <- rownames(meta)
+stages <- c("D9 CD34-","D9 CD34+","D9+8 HE","D9+8 HPC")
+meta$stage <- factor(meta$stage, levels=stages)
 
+pc <- plotPCA(vsd,intgroup=c("stage","line"),returnData=TRUE)
+v <- round(100*attr(pc,"percentVar"),1)
+p1 <- ggplot(pc,aes(PC1,PC2,color=stage,shape=line)) +
+  geom_point(size=3) + theme_classic() +
+  labs(x=paste0("PC1 (",v[1],"%)"),y=paste0("PC2 (",v[2],"%)"))
+ggsave("a_PCA.pdf",p1,width=6,height=4)
 
+##8b
+cor_df <- bind_rows(lapply(stages,function(s) {
+  m <- meta %>% filter(stage==s)
+  x <- rowMeans(mat[,m$sample[m$line=="WT14"],drop=FALSE])
+  y <- rowMeans(mat[,m$sample[m$line=="WT17"],drop=FALSE])
+  data.frame(stage=s,WT14=x,WT17=y)
+}))
+p2 <- ggplot(cor_df,aes(WT14,WT17)) +
+  geom_point(size=0.2,alpha=0.3) +
+  geom_abline(slope=1,intercept=0,lty=2) +
+  facet_wrap(~stage,scales="free") + theme_classic()
+ggsave("b_Correlation.pdf",p2,width=7,height=6)
 
+##8c
+markers <- c("KDR","CDH5","PECAM1","ENG","VWF","SOX17",
+             "ERG","GATA2","RUNX1","TAL1","LMO2","GFI1",
+             "MYB","SPI1","PTPRC","SPN","KIT","MPL",
+             "HOXA9","MECOM","MEIS1")
+m <- mat[intersect(markers,rownames(mat)),meta$sample]
+m <- t(scale(t(m)))
+pheatmap(m,cluster_rows=FALSE,cluster_cols=FALSE,
+         annotation_col=meta[,c("stage","line"),drop=FALSE],
+         filename="c_Heatmap.pdf")
 
-##Supplementary Fig9.
+##8d
+trajectory <- c("CDH5","SOX17","RUNX1","GATA2","GFI1",
+                "MYB","TAL1","SPI1","PTPRC","SPN","MPL")
+df <- as.data.frame(t(mat[intersect(trajectory,rownames(mat)),]))
+df <- cbind(meta,df) %>%
+  pivot_longer(all_of(trajectory),names_to="gene",values_to="value") %>%
+  group_by(stage,line,gene) %>%
+  summarise(mean=mean(value),sem=sd(value)/sqrt(n()),.groups="drop")
 
+p4 <- ggplot(df,aes(stage,mean,color=line,group=line)) +
+  geom_line() + geom_point() +
+  geom_errorbar(aes(ymin=mean-sem,ymax=mean+sem),width=0.1) +
+  facet_wrap(~gene,scales="free_y",ncol=4) +
+  theme_classic() + theme(axis.text.x=element_text(angle=90))
+ggsave("d_Trajectories.pdf",p4,width=11,height=9)
 
+##8e
+genes <- c("VEGFC","COL4A5","CEBPA")
+norm <- log2(counts(dds,normalized=TRUE)[genes,]+1)
+df5 <- as.data.frame(t(norm)) %>%
+  mutate(sample=rownames(.)) %>%
+  left_join(meta,by="sample") %>%
+  filter(stage %in% c("D9+8 HE","D9+8 HPC")) %>%
+  pivot_longer(all_of(genes),names_to="gene",values_to="value")
 
-
+p5 <- ggplot(df5,aes(stage,value,color=stage)) +
+  geom_point(position=position_jitter(width=0.08),size=2) +
+  stat_summary(fun=mean,geom="point",color="black",size=3) +
+  stat_summary(fun.data=mean_se,geom="errorbar",width=0.15) +
+  facet_grid(line~gene,scales="free_y") +
+  theme_classic() + theme(legend.position="none")
+ggsave("e_Gene_expression.pdf",p5,width=9,height=6)
 
 
 ##Supplementary Fig10.
 
+##10a,b,d
 
+obj <- readRDS("your_seurat_object.rds")
+Idents(obj) <- "celltype_final"
 
+genes <- list(
+  Other = c("ZEB1","MTUS1","ILF3","PRCC"),
+  Dynein = c("DYNC1H1","DYNC1I1","DYNC1I2","DYNC1LI1",
+             "DYNC1LI2","DYNC2H1","DYNC2LI1",
+             "DYNLL1","DYNLL2","DYNLRB1","DYNLRB2",
+             "DYNLT1","DYNLT3","DNAH1","DNAH3","DNAH6",
+             "DNAH7","DNAH12","DNAH14","DNAI1",
+             "ZMYND12","TTC29","ACTA1","CETN1","CETN2","CETN3"),
+  Kinesin = c("KIFC1","KIFC2","KIFC3","KIF1A","KIF1B","KIF1C",
+              "KIF2A","KIF2B","KIF2C","KIF3A","KIF3B","KIF3C",
+              "KIF4A","KIF4B","KIF5A","KIF5B","KIF5C","KIF6",
+              "KIF7","KIF9","CENPE","KIF11","KIF12","KIF13A",
+              "KIF13B","KIF14","KIF15","STARD9","KIF16B",
+              "KIF17","KIF18A","KIF18B","KIF19","KIF20A",
+              "KIF20B","KIF21A","KIF21B","KIF22","KIF23",
+              "KIF24","KIF25","KIF26A","KIF26B","KIF27")
+)
 
+plots <- lapply(genes, function(g)
+  DotPlot(obj, features=intersect(g,rownames(obj)),
+          assay="RNA", dot.scale=5,
+          cols=c("#E6E0E9","#2710D8")) +
+    RotatedAxis() +
+    labs(x=NULL,y=NULL) +
+    theme_classic(base_size=11) +
+    theme(axis.text.x=element_text(size=8),
+          axis.text.y=element_text(size=10))
+)
 
-##Supplementary Fig11.
-
-
-
-
-
-
+ggsave("Motor_gene_DotPlots.pdf",
+       wrap_plots(plots,ncol=1,heights=c(1,4,6)),
+       width=7,height=18)
 
 
 ##Supplementary Fig12.
 
+##12d
+
+genes <- c("BRWD1", "RGS6", "BCL11A")
+
+DotPlot(
+  obj,
+  features = genes,
+  assay = "RNA",
+  cols = c("#E6E0E9", "#2710D8"),
+  dot.scale = 6
+) +
+  coord_flip() +
+  labs(x = NULL, y = NULL) +
+  theme_classic(base_size = 12) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.text.y = element_text(size = 13),
+    legend.position = "none"
+  )
 
 
