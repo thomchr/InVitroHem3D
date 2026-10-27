@@ -734,7 +734,10 @@ p_b <- TSSPlot(obj, assay = "ATAC", group.by = "library") +
 ##3c
 p_c <- FragmentHistogram(
   obj, assay = "ATAC", group.by = "library"
-) + theme_classic()
+) +
+  labs(x = "Fragment length (bp)", y = "Fragment count") +
+  theme_classic()
+
 
 ##3d
 # Requires previously calculated QC metrics
