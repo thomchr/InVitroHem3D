@@ -690,9 +690,6 @@ ggsave(
 library(ComplexHeatmap)
 library(patchwork)
 
-# Load annotated Seurat object
-obj <- readRDS("path/to/your/seurat.RDS")
-
 # Use normalized RNA expression
 DefaultAssay(obj) <- "RNA"
 
@@ -753,10 +750,10 @@ dev.off()
 
 
 ##3a
-obj <- readRDS("path/to/your/ATAC_QC_seurat.RDS")
+obj <- readRDS("path/to/your/seurat.RDS")
 DefaultAssay(obj) <- "ATAC"
 
-obj$library <- factor(obj$library, levels = c("HE", "HPC"))
+obj$library <- factor(obj$library, levels = c("Adherent", "HPC"))
 cols <- c("#F8766D", "#00BFC4")
 
 
@@ -784,13 +781,9 @@ plots[[4]] <- plots[[4]] + coord_cartesian(ylim = c(0, 2.2))
 p <- wrap_plots(plots, ncol = 2) +
   plot_annotation(tag_levels = "a")
 
-ggsave("ATAC_QC_abcd.png", p, width = 8.5, height = 7.2, dpi = 600)
+ggsave("ATAC_QC.png", p, width = 8.5, height = 7.2, dpi = 600)
 
 ##3b
-
-library(Signac)
-library(ggplot2)
-library(patchwork)
 
 # Use the same Seurat object and colors as panel a
 cols <- c("Adherent" = "#F8766D", "HPC" = "#00BFC4")
@@ -809,7 +802,7 @@ p_c <- FragmentHistogram(
 
 
 ##3d
-# Requires previously calculated QC metrics
+
 qc <- obj@meta.data
 qc$library <- factor(qc$library, levels = c("Adherent", "HPC"))
 
