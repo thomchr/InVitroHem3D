@@ -321,49 +321,39 @@ ComplexHeatmap::Heatmap(
 
 ## 5b
 
-modules <- genes[names(genes) != "MT proteins"]
-modules <- lapply(modules, function(g) intersect(unique(g), rownames(x)))
+
+# Module scores
+modules <- lapply(genes[names(genes) != "MT proteins"],
+                  function(g) intersect(g, rownames(x)))
 modules <- modules[lengths(modules) >= 3]
 
-stage_cells <- lapply(cells[stages], function(v) intersect(v, colnames(x)))
-stopifnot(all(lengths(stage_cells) > 0))
-n <- min(lengths(stage_cells))
+cells <- lapply(cells[stages], intersect, y = colnames(x))
+n <- min(lengths(cells))
+stopifnot(n > 0)
 
-# Gene-level z-scores
-y <- as.matrix(x[unique(unlist(modules)), 
-                 unlist(stage_cells), drop = FALSE])
-
-z <- t(scale(t(y)))
+z <- t(scale(t(as.matrix(x[unique(unlist(modules)),
+                            unlist(cells), drop = FALSE]))))
 z <- z[apply(z, 1, function(v) all(is.finite(v))), , drop = FALSE]
 z <- pmax(-3, pmin(3, z))
 
-# Module scores per cell
 modules <- lapply(modules, intersect, y = rownames(z))
 modules <- modules[lengths(modules) >= 3]
 stopifnot(length(modules) > 0)
 
-scores <- sapply(modules, function(g)
-  colMeans(z[g, , drop = FALSE]))
+scores <- sapply(modules, function(g) colMeans(z[g, , drop = FALSE]))
 
 # Balanced bootstrap
 set.seed(12345)
-
 df <- dplyr::bind_rows(lapply(stages, function(s) {
   b <- replicate(500, colMeans(scores[
-    sample(stage_cells[[s]], n, replace = TRUE),
-    , drop = FALSE
-  ]))
-
-  data.frame(
-    stage = s,
-    module = colnames(scores),
-    median = apply(b, 1, median),
-    lower = apply(b, 1, quantile, probs = 0.025),
-    upper = apply(b, 1, quantile, probs = 0.975)
-  )
+    sample(cells[[s]], n, replace = TRUE), , drop = FALSE]))
+  data.frame(stage = s, module = colnames(scores),
+             median = apply(b, 1, median),
+             lower = apply(b, 1, quantile, .025),
+             upper = apply(b, 1, quantile, .975))
 }))
 
-df$stage <- factor(df$stage, levels = stages,
+df$stage <- factor(df$stage, stages,
                    labels = c("Stroma", "Endo", "HE", "HPC"))
 df$module <- factor(df$module, levels = names(modules))
 
@@ -371,22 +361,20 @@ df$module <- factor(df$module, levels = names(modules))
 pB <- ggplot(df, aes(stage, median, group = 1)) +
   geom_hline(yintercept = 0, linetype = 2, color = "grey80") +
   geom_line(color = "grey40") +
-  geom_errorbar(aes(ymin = lower, ymax = upper,
-                    color = stage), width = 0.08) +
+  geom_errorbar(aes(ymin = lower, ymax = upper, color = stage),
+                width = .08) +
   geom_point(aes(color = stage), size = 2.5) +
   facet_wrap(~module, ncol = 2) +
-  scale_color_manual(values = c(
-    "#E7B06A", "#D98A5F", "#C85C5C", "#8E3B56"
-  )) +
+  scale_color_manual(values = c("#E7B06A", "#D98A5F",
+                                "#C85C5C", "#8E3B56")) +
   theme_classic() +
-  theme(
-    legend.position = "none",
-    axis.text.x = element_text(angle = 25, hjust = 1),
-    strip.text = element_text(face = "bold")
-  ) +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 25, hjust = 1),
+        strip.text = element_text(face = "bold")) +
   labs(x = NULL, y = "Module score")
 
 ggsave("Fig_B.pdf", pB, width = 7, height = 7)
+
 
 
 
