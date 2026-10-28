@@ -379,26 +379,81 @@ ggsave("Fig_B.pdf", pB, width = 7, height = 7)
 
 
 ## 5c
+library(Matrix)
+library(Signac)
 
-cdata <- read.csv("path/to/your/linked_peak_results.csv")
+stages <- c("Stroma", "Endo", "HE", "HPC")
+rna <- LayerData(obj, assay = "RNA", layer = "data")
+atac <- LayerData(obj, assay = "ATAC", layer = "data")
+links <- as.data.frame(Links(obj[["ATAC"]]))
 
+# Match linked peaks
+p <- as.character(links$peak)
+i <- !p %in% rownames(atac)
+p[i] <- gsub(":", "-", p[i], fixed = TRUE)
+i <- !p %in% rownames(atac)
+p[i] <- sub("^([^-]+)-", "\\1:", p[i])
+links$peak <- p
+links <- unique(links[, c("gene", "peak")])
+links <- subset(links, gene %in% rownames(rna) &
+                  peak %in% rownames(atac))
+
+cells <- split(colnames(obj), obj$motor_stage)[stages]
+cells <- lapply(cells, function(x)
+  Reduce(intersect, list(x, colnames(rna), colnames(atac))))
+stopifnot(nrow(links) > 0, all(lengths(cells) > 0))
+
+# Calculate RNA and linked-ATAC changes
+peak_list <- split(links$peak, links$gene)
+
+cdata <- do.call(rbind, lapply(names(peak_list), function(g) {
+  peaks <- unique(peak_list[[g]])
+  r <- sapply(cells, function(x) mean(as.numeric(rna[g, x])))
+  a <- sapply(cells, function(x)
+    mean(Matrix::rowMeans(atac[peaks, x, drop = FALSE])))
+
+  data.frame(
+    gene = g,
+    transition = paste(head(stages, -1), tail(stages, -1), sep = " → "),
+    delta_rna = diff(r),
+    delta_atac = diff(a),
+    linked_peak_count = length(peaks)
+  )
+}))
+
+# Assign functional modules
+modules <- genes[names(genes) != "MT proteins"]
+module_map <- data.frame(
+  gene = unlist(modules, use.names = FALSE),
+  module = rep(names(modules), lengths(modules))
+)
+module_map <- module_map[!duplicated(module_map$gene), ]
+cdata$module <- module_map$module[match(cdata$gene, module_map$gene)]
+cdata <- subset(cdata, !is.na(module) &
+                  is.finite(delta_rna) & is.finite(delta_atac))
+
+write.csv(cdata, "Panel_C_data.csv", row.names = FALSE)
+
+# Plot
 pC <- ggplot(cdata, aes(delta_atac, delta_rna)) +
   geom_hline(yintercept = 0, linetype = 2, color = "grey75") +
   geom_vline(xintercept = 0, linetype = 2, color = "grey75") +
   geom_point(aes(fill = module, size = linked_peak_count),
              shape = 21, color = "grey40", alpha = 0.8) +
   ggrepel::geom_text_repel(
-    data = subset(cdata, gene %in% c("DYNC1H1", "DYNC2H1",
-                                    "KIF5B", "KIF13B", "MTUS1")),
-    aes(label = gene), size = 3) +
+    data = subset(cdata, gene %in% c(
+      "DYNC1H1", "DYNC2H1", "KIF5B", "KIF13B", "MTUS1")),
+    aes(label = gene), size = 3
+  ) +
   facet_wrap(~transition, nrow = 1, scales = "free") +
-  scale_size_continuous(name = "Linked peaks", range = c(2, 7)) +
+  scale_size_continuous(range = c(2, 7), name = "Linked peaks") +
   theme_classic() +
   labs(x = "Change in linked-peak accessibility",
        y = "Change in RNA expression",
        fill = "Functional module")
 
 ggsave("Fig_C.pdf", pC, width = 12, height = 5)
+
 
 
 
